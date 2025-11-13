@@ -2,75 +2,81 @@ import { useState, useEffect } from "react";
 import "./App.css";
 
 function App() {
-  const today = new Date().toDateString();
+  const todayString = new Date().toDateString();
 
-  // Initialize data from localStorage
+  // Load data from localStorage or create default
   const [data, setData] = useState(() => {
     const saved = JSON.parse(localStorage.getItem("goalsData"));
-    if (saved) {
-      // Reset addictions if it's a new day
-      if (saved.lastUpdate !== today) {
-        const resetAddictions = saved.addictions?.map(a => ({
-          ...a,
-          avoided: false
-        })) || [];
-        const updatedData = { ...saved, addictions: resetAddictions, lastUpdate: today };
-        localStorage.setItem("goalsData", JSON.stringify(updatedData));
-        return updatedData;
-      }
-      return saved;
-    }
-    // If no data exists
-    return { date: today, goals: [], streak: 0, addictions: [], lastUpdate: today };
+    if (saved) return saved;
+    return {
+      date: todayString,
+      goals: [],
+      streak: 0,
+      longestStreak: 0,
+      addictions: [],
+    };
   });
 
-  // State hooks
-  const [goals, setGoals] = useState(data.goals);
-  const [streak, setStreak] = useState(data.streak);
-  const [newGoal, setNewGoal] = useState("");
-
+  const [goals, setGoals] = useState(data.goals || []);
   const [addictions, setAddictions] = useState(data.addictions || []);
+  const [streak, setStreak] = useState(data.streak || 0);
+  const [longestStreak, setLongestStreak] = useState(data.longestStreak || 0);
+  const [newGoal, setNewGoal] = useState("");
   const [newAddiction, setNewAddiction] = useState("");
+  const [today, setToday] = useState(data.date || todayString);
 
-  // Request notification permission
+  // Reset data when new day starts
   useEffect(() => {
-    if ("Notification" in window && Notification.permission !== "granted") {
-      Notification.requestPermission();
-    }
-  }, []);
+    if (today !== todayString) {
+      const updatedAddictions = addictions.map((a) => {
+        if (!a.failedToday) {
+          return {
+            ...a,
+            daysAvoided: a.daysAvoided + 1,
+            failedToday: false,
+          };
+        }
+        return { ...a, failedToday: false };
+      });
 
-  // Update localStorage and streak when goals or addictions change
+      const newData = {
+        ...data,
+        date: todayString,
+        goals: [],
+        addictions: updatedAddictions,
+      };
+
+      setGoals([]);
+      setAddictions(updatedAddictions);
+      setToday(todayString);
+      saveData(newData);
+    }
+  }, [today, todayString]);
+
+  // Save to localStorage whenever data changes
   useEffect(() => {
-    const allCompleted = goals.length > 0 && goals.every((g) => g.completed);
+    saveData({
+      date: today,
+      goals,
+      streak,
+      longestStreak,
+      addictions,
+    });
+  }, [goals, streak, longestStreak, addictions, today]);
 
-    if (allCompleted && !data.markedComplete) {
-      const newStreak = streak + 1;
-      setStreak(newStreak);
-      const updatedData = { ...data, streak: newStreak, markedComplete: true, addictions, lastUpdate: today };
-      setData(updatedData);
-      localStorage.setItem("goalsData", JSON.stringify(updatedData));
+  function saveData(updated) {
+    localStorage.setItem("goalsData", JSON.stringify(updated));
+  }
 
-      // Browser notification
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("🎉 Congrats!", {
-          body: "You completed all your goals today! Keep your streak going! 🔥",
-          icon: "/favicon.ico",
-        });
-      }
-    } else {
-      const updatedData = { ...data, goals, streak, markedComplete: data.markedComplete || false, addictions, lastUpdate: today };
-      setData(updatedData);
-      localStorage.setItem("goalsData", JSON.stringify(updatedData));
-    }
-  }, [goals, streak, addictions]);
-
-  // Goal functions
+  // Add Goal
   function addGoal() {
     if (!newGoal.trim()) return;
-    setGoals([...goals, { id: Date.now(), text: newGoal, completed: false }]);
+    const newList = [...goals, { id: Date.now(), text: newGoal, completed: false }];
+    setGoals(newList);
     setNewGoal("");
   }
 
+  // Toggle Goal Complete
   function toggleGoal(id) {
     setGoals(
       goals.map((goal) =>
@@ -79,41 +85,59 @@ function App() {
     );
   }
 
+  // Delete Goal
   function deleteGoal(id) {
     setGoals(goals.filter((goal) => goal.id !== id));
   }
 
-  // Addiction functions
+  // Add Addiction
   function addAddiction() {
     if (!newAddiction.trim()) return;
-    const newItem = { id: Date.now(), name: newAddiction, avoided: false, daysAvoided: 0 };
-    const updated = [...addictions, newItem];
-    setAddictions(updated);
+    const newItem = {
+      id: Date.now(),
+      name: newAddiction,
+      daysAvoided: 0,
+      failedToday: false,
+    };
+    setAddictions([...addictions, newItem]);
     setNewAddiction("");
   }
 
-  function toggleAddiction(id) {
-    const updated = addictions.map((item) => {
-      if (item.id === id) {
-        const avoidedToday = !item.avoided;
-        return {
-          ...item,
-          avoided: avoidedToday,
-          daysAvoided: avoidedToday ? item.daysAvoided + 1 : item.daysAvoided
-        };
+  // Mark Addiction as Failed
+  function failAddiction(id) {
+    const updated = addictions.map((a) => {
+      if (a.id === id && !a.failedToday) {
+        return { ...a, daysAvoided: 0, failedToday: true };
       }
-      return item;
+      return a;
     });
     setAddictions(updated);
   }
 
-  // Progress calculation
+  // Test: simulate next day
+  function nextDay() {
+    const nextDate = new Date(today);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const newDay = nextDate.toDateString();
+    setToday(newDay);
+  }
+
+  // Progress bar
   const completed = goals.filter((g) => g.completed).length;
   const progress = goals.length > 0 ? (completed / goals.length) * 100 : 0;
 
   return (
     <div className="app">
-      <h1>🎯 Daily Goals</h1>
+      {/* HEADER */}
+      <div style={{ marginBottom: "20px" }}>
+        <h1>🎯 Daily Goals</h1>
+        <p>
+          📅 {today} <br />
+          🔥 <strong>Streak:</strong> {streak} days
+          <br />
+          🏆 <strong>Longest streak:</strong> {longestStreak} days
+        </p>
+      </div>
 
       {/* Progress Bar */}
       <div className="progress-bar">
@@ -123,15 +147,15 @@ function App() {
             width: `${progress}%`,
             backgroundColor:
               progress === 100
-                ? "#4caf50" // Green
+                ? "#4caf50"
                 : progress >= 50
-                ? "#ffc107" // Yellow
-                : "#f44336", // Red
+                ? "#ffc107"
+                : "#f44336",
           }}
         ></div>
       </div>
 
-      {/* Add new goal */}
+      {/* Add New Goal */}
       <div className="input-section">
         <input
           type="text"
@@ -142,7 +166,7 @@ function App() {
         <button onClick={addGoal}>Add</button>
       </div>
 
-      {/* Goals list */}
+      {/* Goals List */}
       <ul>
         {goals.map((goal) => (
           <li key={goal.id} className={goal.completed ? "completed" : ""}>
@@ -157,23 +181,29 @@ function App() {
         ))}
       </ul>
 
-      <hr />
+      <hr style={{ margin: "30px 0", borderColor: "#555" }} />
 
-      {/* Addictions Section */}
+      {/* ADDICTIONS SECTION */}
       <h2>🚫 Track Addictions</h2>
       <ul>
-        {addictions.map((item) => (
-          <li key={item.id} className={item.avoided ? "avoided" : ""}>
-            <span>{item.name}</span>
-            <button onClick={() => toggleAddiction(item.id)}>
-              {item.avoided ? "❌ Failed" : "✅ Avoided"}
+        {addictions.map((a) => (
+          <li key={a.id}>
+            <span>{a.name}</span>
+            <button
+              onClick={() => failAddiction(a.id)}
+              disabled={a.failedToday}
+              style={{
+                background: a.failedToday ? "#666" : "#f44336",
+              }}
+            >
+              {a.failedToday ? "❌ Failed Today" : "Fail"}
             </button>
-            <span>Days avoided: {item.daysAvoided}</span>
+            <span>Days avoided: {a.daysAvoided}</span>
           </li>
         ))}
       </ul>
 
-      {/* Add new addiction */}
+      {/* Add New Addiction */}
       <div className="input-section">
         <input
           type="text"
@@ -183,6 +213,9 @@ function App() {
         />
         <button onClick={addAddiction}>Add</button>
       </div>
+
+      {/* Test Button */}
+      <button onClick={nextDay}>⏭️ Next Day (Test)</button>
     </div>
   );
 }
